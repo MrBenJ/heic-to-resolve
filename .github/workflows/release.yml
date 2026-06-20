@@ -15,6 +15,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Don't leave a write-scoped git credential in the checkout: ./build.sh
+          # runs code from the tagged commit, and the publish step gets GH_TOKEN
+          # explicitly, so the build/package steps never need git auth.
+          persist-credentials: false
 
       - name: Build app
         run: ./build.sh
