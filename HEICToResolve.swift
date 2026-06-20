@@ -14,7 +14,7 @@ struct ConvResult: Identifiable, Sendable {
 // UI stages.
 enum Stage: Equatable {
     case idle
-    case converting(done: Int, total: Int)
+    case converting(current: Int, total: Int)
     case finished
 }
 
@@ -39,14 +39,12 @@ final class Model: ObservableObject {
         let files = urls.filter { Self.imageExts.contains($0.pathExtension.lowercased()) }
         guard !files.isEmpty else { return }
         results = []
-        stage = .converting(done: 0, total: files.count)
+        stage = .converting(current: 1, total: files.count)
         Task.detached(priority: .userInitiated) {
             var acc: [ConvResult] = []
             for (i, f) in files.enumerated() {
-                let r = Self.convert(f)
-                acc.append(r)
-                let done = i + 1
-                await MainActor.run { self.stage = .converting(done: done, total: files.count) }
+                await MainActor.run { self.stage = .converting(current: i + 1, total: files.count) }
+                acc.append(Self.convert(f))
             }
             let finalResults = acc
             await MainActor.run {
@@ -67,11 +65,25 @@ final class Model: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting(outs)
     }
 
+    // Pick an output path that never clobbers an existing file:
+    // <name>-resolve.png, then -resolve-2.png, -resolve-3.png, …
+    nonisolated static func uniqueOutputURL(for source: URL) -> URL {
+        let dir = source.deletingLastPathComponent()
+        let base = source.deletingPathExtension().lastPathComponent + "-resolve"
+        let fm = FileManager.default
+        var candidate = dir.appendingPathComponent(base + ".png")
+        var n = 2
+        while fm.fileExists(atPath: candidate.path) {
+            candidate = dir.appendingPathComponent("\(base)-\(n).png")
+            n += 1
+        }
+        return candidate
+    }
+
     // The actual conversion — the exact sips command, color-matched to sRGB.
     nonisolated static func convert(_ url: URL) -> ConvResult {
         let srgb = "/System/Library/ColorSync/Profiles/sRGB Profile.icc"
-        let outName = url.deletingPathExtension().lastPathComponent + "-resolve.png"
-        let outURL = url.deletingLastPathComponent().appendingPathComponent(outName)
+        let outURL = uniqueOutputURL(for: url)
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/sips")
         proc.arguments = ["--matchTo", srgb, "-s", "format", "png", url.path, "--out", outURL.path]
@@ -102,8 +114,8 @@ struct ContentView: View {
             switch model.stage {
             case .idle:
                 DropZone(targeted: model.isTargeted)
-            case let .converting(done, total):
-                Converting(done: done, total: total)
+            case let .converting(current, total):
+                Converting(current: current, total: total)
             case .finished:
                 Done(model: model)
             }
@@ -118,15 +130,29 @@ struct ContentView: View {
         }
     }
 
-    // Pull file URLs out of dropped item providers (thread-safe accumulation).
+    // Pull file URLs out of dropped item providers. Finder drops usually arrive as a
+    // file-URL Data blob; we also accept URL/String forms. Accumulation is lock-guarded
+    // because provider callbacks can fire on different threads.
     private func loadURLs(_ providers: [NSItemProvider], _ completion: @escaping ([URL]) -> Void) {
+        let typeID = UTType.fileURL.identifier
         var urls: [URL] = []
         let lock = NSLock()
         let group = DispatchGroup()
-        for p in providers {
+        for p in providers where p.hasItemConformingToTypeIdentifier(typeID) {
             group.enter()
-            _ = p.loadObject(ofClass: URL.self) { url, _ in
-                if let u = url {
+            p.loadItem(forTypeIdentifier: typeID, options: nil) { item, _ in
+                var url: URL?
+                switch item {
+                case let data as Data:
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                case let u as URL:
+                    url = u
+                case let s as String:
+                    url = URL(string: s)
+                default:
+                    url = nil
+                }
+                if let u = url, u.isFileURL {
                     lock.lock(); urls.append(u); lock.unlock()
                 }
                 group.leave()
@@ -166,12 +192,12 @@ struct DropZone: View {
 }
 
 struct Converting: View {
-    let done: Int
+    let current: Int
     let total: Int
     var body: some View {
         VStack(spacing: 18) {
             ProgressView().controlSize(.large)
-            Text(total > 1 ? "Converting \(min(done + 1, total)) of \(total)…" : "Converting…")
+            Text(total > 1 ? "Converting \(current) of \(total)…" : "Converting…")
                 .font(.title3.weight(.medium))
                 .monospacedDigit()
         }

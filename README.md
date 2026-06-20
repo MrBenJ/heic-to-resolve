@@ -6,9 +6,9 @@ wrong‑looking stills.
 
 ## The problem it solves
 
-Photos from a modern iPhone/iPad come in as **Display P3, PQ (HDR)** — a wide‑gamut, high‑dynamic‑range
-color space. When you import one of those onto a standard **Rec.709** Resolve timeline, Resolve
-interprets that P3/PQ tagging literally and the image renders oversaturated and wrong.
+Photos from a modern iPhone/iPad can come in as **wide‑gamut (Display P3)** and/or **HDR (PQ)** —
+not plain sRGB. When you import one of those onto a standard **Rec.709** Resolve timeline, Resolve
+interprets that P3/PQ tagging literally and the image can render oversaturated and wrong.
 
 This app does one thing: it color‑matches each image to **sRGB** (which shares Rec.709 primaries),
 so it drops into Resolve and just looks right.
