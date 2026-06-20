@@ -13,6 +13,17 @@ interprets that P3/PQ tagging literally and the image can render oversaturated a
 This app does one thing: it color‑matches each image to **sRGB** (which shares Rec.709 primaries),
 so it drops into Resolve and just looks right.
 
+## Download
+
+Grab the latest `.app` from the [**Releases**](https://github.com/MrBenJ/heic-to-resolve/releases) page:
+
+1. Download `HEIC-to-Resolve.zip` and unzip it.
+2. Move **HEIC to Resolve.app** to your `/Applications` folder.
+3. The app is ad‑hoc signed (not notarized), so the first time you launch it,
+   **right‑click → Open** and confirm. After that it opens normally.
+
+Prefer to build it yourself? See [Build from source](#build-from-source).
+
 ## Use it
 
 1. Open **HEIC to Resolve**.
@@ -58,6 +69,21 @@ cp -R "build/HEIC to Resolve.app" /Applications/   # install it
 | `make-icon.swift` | Draws the app icon (AppKit) at 1024px |
 | `Info.plist` | App bundle metadata |
 | `build.sh` | Compiles, builds the icon, assembles + ad‑hoc signs the `.app` |
+| `package.sh` | Runs `build.sh` and zips the `.app` for distribution |
+| `.github/workflows/release.yml` | On a `v*` tag push: builds, packages, and publishes a GitHub Release |
+
+### Cutting a release
+
+Push a version tag and CI does the rest (builds on a macOS runner, attaches
+`HEIC-to-Resolve.zip` to a generated release):
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+To build the release artifact locally instead, run `./package.sh` — it produces
+`build/HEIC-to-Resolve.zip`.
 
 ## Notes
 

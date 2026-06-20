@@ -1,0 +1,43 @@
+name: Release
+
+# Push a version tag to build, package, and publish a GitHub Release
+# with the .app attached:  git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Don't leave a write-scoped git credential in the checkout: ./build.sh
+          # runs code from the tagged commit, and the publish step gets GH_TOKEN
+          # explicitly, so the build/package steps never need git auth.
+          persist-credentials: false
+
+      - name: Build app
+        run: ./build.sh
+
+      - name: Package .app into a zip
+        run: |
+          cd build
+          # --sequesterRsrc keeps AppleDouble (._*) entries under __MACOSX/ instead of
+          # inline, so a plain `unzip` won't break the app signature seal.
+          ditto -c -k --sequesterRsrc --keepParent "HEIC to Resolve.app" "HEIC-to-Resolve.zip"
+          shasum -a 256 "HEIC-to-Resolve.zip"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            "build/HEIC-to-Resolve.zip" \
+            --title "$TAG" \
+            --generate-notes
