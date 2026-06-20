@@ -27,7 +27,9 @@ jobs:
       - name: Package .app into a zip
         run: |
           cd build
-          ditto -c -k --keepParent "HEIC to Resolve.app" "HEIC-to-Resolve.zip"
+          # --sequesterRsrc keeps AppleDouble (._*) entries under __MACOSX/ instead of
+          # inline, so a plain `unzip` won't break the app signature seal.
+          ditto -c -k --sequesterRsrc --keepParent "HEIC to Resolve.app" "HEIC-to-Resolve.zip"
           shasum -a 256 "HEIC-to-Resolve.zip"
 
       - name: Publish release
