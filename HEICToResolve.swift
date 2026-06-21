@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import CoreGraphics
+import ImageIO
 import UniformTypeIdentifiers
 
 // One conversion result.
@@ -26,6 +28,13 @@ final class Model: ObservableObject {
     @Published var isTargeted = false
     @Published var results: [ConvResult] = []
 
+    // Output bit depth. Defaults to 16-bit (the format a colorist wants); the
+    // choice is remembered across launches via UserDefaults.
+    @Published var sixteenBit: Bool =
+        (UserDefaults.standard.object(forKey: "use16BitPNG") as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(sixteenBit, forKey: "use16BitPNG") }
+    }
+
     var isConverting: Bool {
         if case .converting = stage { return true }
         return false
@@ -33,18 +42,19 @@ final class Model: ObservableObject {
 
     static let imageExts: Set<String> = ["heic", "heif", "png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp"]
 
-    // Kick off a batch. Runs sips off the main thread; UI updates on the main actor.
+    // Kick off a batch. Runs conversion off the main thread; UI updates on the main actor.
     func handleDrop(_ urls: [URL]) {
         guard !isConverting else { return }
         let files = urls.filter { Self.imageExts.contains($0.pathExtension.lowercased()) }
         guard !files.isEmpty else { return }
         results = []
         stage = .converting(current: 1, total: files.count)
+        let bits = sixteenBit ? 16 : 8
         Task.detached(priority: .userInitiated) {
             var acc: [ConvResult] = []
             for (i, f) in files.enumerated() {
                 await MainActor.run { self.stage = .converting(current: i + 1, total: files.count) }
-                acc.append(Self.convert(f))
+                acc.append(Self.convert(f, bitsPerComponent: bits))
             }
             let finalResults = acc
             await MainActor.run {
@@ -80,29 +90,43 @@ final class Model: ObservableObject {
         return candidate
     }
 
-    // The actual conversion — the exact sips command, color-matched to sRGB.
-    nonisolated static func convert(_ url: URL) -> ConvResult {
-        let srgb = "/System/Library/ColorSync/Profiles/sRGB Profile.icc"
+    // The actual conversion — color-matched to sRGB, done in-process with
+    // ImageIO + Core Graphics (the same colorimetric match `sips --matchTo` does,
+    // but lets us choose 8- or 16-bit-per-component output). P3 gamut and PQ/HDR
+    // are converted/clamped to sRGB; extreme HDR highlights are not tone-mapped.
+    nonisolated static func convert(_ url: URL, bitsPerComponent: Int) -> ConvResult {
         let outURL = uniqueOutputURL(for: url)
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/sips")
-        proc.arguments = ["--matchTo", srgb, "-s", "format", "png", url.path, "--out", outURL.path]
-        let pipe = Pipe()
-        proc.standardError = pipe
-        proc.standardOutput = pipe
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if proc.terminationStatus == 0 {
-                return ConvResult(source: url, output: outURL, error: nil)
-            }
-            let msg = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "sips exited \(proc.terminationStatus)"
-            return ConvResult(source: url, output: nil, error: msg)
-        } catch {
-            return ConvResult(source: url, output: nil, error: error.localizedDescription)
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let img = CGImageSourceCreateImageAtIndex(src, 0, nil),
+              let srgb = CGColorSpace(name: CGColorSpace.sRGB) else {
+            return ConvResult(source: url, output: nil, error: "Couldn't read image")
         }
+        let w = img.width, h = img.height
+        // 16-bit RGBA needs the byteOrder16Little flag per CGContext's supported
+        // formats; 8-bit RGBA uses the default byte order. Premultiplied alpha
+        // preserves any transparency (iPhone HEIC stills are opaque, so it's a
+        // no-op for them).
+        let alpha = CGImageAlphaInfo.premultipliedLast.rawValue
+        let info = bitsPerComponent == 16
+            ? alpha | CGBitmapInfo.byteOrder16Little.rawValue
+            : alpha
+        let bytesPerRow = w * (bitsPerComponent / 8) * 4
+        guard let ctx = CGContext(data: nil, width: w, height: h,
+                                  bitsPerComponent: bitsPerComponent, bytesPerRow: bytesPerRow,
+                                  space: srgb, bitmapInfo: info) else {
+            return ConvResult(source: url, output: nil, error: "Couldn't create \(bitsPerComponent)-bit context")
+        }
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h)) // CG color-matches P3/PQ -> sRGB
+        guard let out = ctx.makeImage(),
+              let dest = CGImageDestinationCreateWithURL(outURL as CFURL,
+                            UTType.png.identifier as CFString, 1, nil) else {
+            return ConvResult(source: url, output: nil, error: "Couldn't write PNG")
+        }
+        CGImageDestinationAddImage(dest, out, nil)
+        guard CGImageDestinationFinalize(dest) else {
+            return ConvResult(source: url, output: nil, error: "Couldn't write PNG")
+        }
+        return ConvResult(source: url, output: outURL, error: nil)
     }
 }
 
@@ -113,7 +137,7 @@ struct ContentView: View {
         Group {
             switch model.stage {
             case .idle:
-                DropZone(targeted: model.isTargeted)
+                DropZone(model: model, targeted: model.isTargeted)
             case let .converting(current, total):
                 Converting(current: current, total: total)
             case .finished:
@@ -163,6 +187,7 @@ struct ContentView: View {
 }
 
 struct DropZone: View {
+    @ObservedObject var model: Model
     let targeted: Bool
     var body: some View {
         VStack(spacing: 14) {
@@ -174,6 +199,14 @@ struct DropZone: View {
             Text("Converts to sRGB PNG for DaVinci Resolve")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            Picker("Output depth", selection: $model.sixteenBit) {
+                Text("8-bit").tag(false)
+                Text("16-bit").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 180)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
