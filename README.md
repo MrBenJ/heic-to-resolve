@@ -27,9 +27,10 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 ## Use it
 
 1. Open **HEIC to Resolve**.
-2. **Drag one or more HEIC files onto the window.**
-3. A spinner shows while it converts (the work runs off the main thread, so the UI stays live).
-4. When it's done you get a ✓ and two buttons: **Show in Finder** and **Convert another**.
+2. Pick your output depth — **8‑bit or 16‑bit** (defaults to 16‑bit; the choice is remembered).
+3. **Drag one or more HEIC files onto the window.**
+4. A spinner shows while it converts (the work runs off the main thread, so the UI stays live).
+5. When it's done you get a ✓ and two buttons: **Show in Finder** and **Convert another**.
 
 Each converted file is written **next to the original** as `<name>-resolve.png` — your originals are
 never touched. You can also drop files onto the app's Dock/Finder icon.
@@ -38,16 +39,15 @@ Accepts `.heic`, `.heif`, `.png`, `.jpg`, `.tiff` — anything macOS can read.
 
 ## How it works
 
-Under the hood it runs Apple's built‑in `sips` per file — zero third‑party dependencies:
+Conversion happens **in‑process** with Apple's ImageIO + Core Graphics — still zero third‑party
+dependencies. Each image is read, drawn into an **sRGB** bitmap context (which performs the same
+colorimetric match `sips --matchTo` does, converting Display P3 / PQ down to sRGB), and written
+back out as a PNG.
 
-```sh
-sips --matchTo '/System/Library/ColorSync/Profiles/sRGB Profile.icc' \
-     -s format png "input.heic" --out "input-resolve.png"
-```
-
-Output is **sRGB, 8‑bit** PNG. (`sips` cannot write 16‑bit PNG — `--matchTo` downsamples to 8‑bit
-and `bitsPerSample` is read‑only — and 8‑bit sRGB is the format that actually fixes the color
-problem.)
+Output is **sRGB** PNG, with a toggle for **8‑bit or 16‑bit** per channel — 16‑bit by default.
+8‑bit produces smaller files; 16‑bit preserves more tonal precision for grading. (The earlier
+`sips`‑based pipeline could only write 8‑bit; doing the conversion natively lets us choose the
+bit depth.)
 
 ## Build from source
 
@@ -65,7 +65,7 @@ cp -R "build/HEIC to Resolve.app" /Applications/   # install it
 
 | File | Purpose |
 | --- | --- |
-| `HEICToResolve.swift` | The SwiftUI app — window, drop handling, async `sips` conversion, UI states |
+| `HEICToResolve.swift` | The SwiftUI app — window, drop handling, async ImageIO/Core Graphics conversion, UI states |
 | `make-icon.swift` | Draws the app icon (AppKit) at 1024px |
 | `Info.plist` | App bundle metadata |
 | `build.sh` | Compiles, builds the icon, assembles + ad‑hoc signs the `.app` |
