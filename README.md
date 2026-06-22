@@ -13,14 +13,31 @@ interprets that P3/PQ tagging literally and the image can render oversaturated a
 This app does one thing: it color‑matches each image to **sRGB** (which shares Rec.709 primaries),
 so it drops into Resolve and just looks right.
 
-## Download
+## Install
 
 Grab the latest `.app` from the [**Releases**](https://github.com/MrBenJ/heic-to-resolve/releases) page:
 
-1. Download `HEIC-to-Resolve.zip` and unzip it.
-2. Move **HEIC to Resolve.app** to your `/Applications` folder.
-3. The app is ad‑hoc signed (not notarized), so the first time you launch it,
-   **right‑click → Open** and confirm. After that it opens normally.
+1. Download **`HEIC-to-Resolve.zip`** from the latest release's **Assets** and unzip it
+   (double‑click in Finder).
+2. Drag **HEIC to Resolve.app** into your `/Applications` folder.
+3. The app is ad‑hoc signed (not notarized), so the first launch is blocked by Gatekeeper.
+   **Right‑click the app → Open**, then confirm in the dialog. After that it opens normally.
+
+### If macOS still won't open it
+
+On recent macOS (Sequoia and later) the right‑click → Open bypass is sometimes refused with a
+"developer cannot be verified" / "damaged" message. Strip the download quarantine and it'll launch:
+
+```sh
+xattr -cr "/Applications/HEIC to Resolve.app"
+```
+
+**Keep the quotes** — the app name has spaces, and without them the shell reads it as three separate
+paths and silently clears nothing. (`-cr` clears all extended attributes, including the newer
+`com.apple.provenance` flag that the narrower `-dr com.apple.quarantine` leaves behind.)
+
+Then open it normally. (You can also approve it under **System Settings → Privacy & Security →
+"Open Anyway"** right after the first blocked attempt.)
 
 Prefer to build it yourself? See [Build from source](#build-from-source).
 
