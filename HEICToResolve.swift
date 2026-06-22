@@ -101,7 +101,19 @@ final class Model: ObservableObject {
               let srgb = CGColorSpace(name: CGColorSpace.sRGB) else {
             return ConvResult(source: url, output: nil, error: "Couldn't read image")
         }
-        let w = img.width, h = img.height
+        // iPhone photos store pixels in the sensor's native orientation plus an
+        // EXIF orientation tag; CGImageSource hands back those raw pixels and never
+        // applies the tag. The old `sips` path preserved orientation, so we bake the
+        // rotation into the pixels here — the PNG comes out upright with no tag to
+        // honor, which is what Resolve (and everything else) expects.
+        let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        let orientation = (props?[kCGImagePropertyOrientation] as? UInt32)
+            .flatMap { CGImagePropertyOrientation(rawValue: $0) } ?? .up
+        let pw = img.width, ph = img.height
+        // For the four 90°/270° orientations the output is rotated, so width and
+        // height swap; the transform below maps the source pixels into this space.
+        let w = orientation.swapsDimensions ? ph : pw
+        let h = orientation.swapsDimensions ? pw : ph
         // 16-bit RGBA needs the byteOrder16Little flag per CGContext's supported
         // formats; 8-bit RGBA uses the default byte order. Premultiplied alpha
         // preserves any transparency (iPhone HEIC stills are opaque, so it's a
@@ -116,7 +128,8 @@ final class Model: ObservableObject {
                                   space: srgb, bitmapInfo: info) else {
             return ConvResult(source: url, output: nil, error: "Couldn't create \(bitsPerComponent)-bit context")
         }
-        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h)) // CG color-matches P3/PQ -> sRGB
+        ctx.concatenate(orientation.drawTransform(pixelWidth: CGFloat(pw), pixelHeight: CGFloat(ph)))
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: pw, height: ph)) // CG color-matches P3/PQ -> sRGB
         guard let out = ctx.makeImage(),
               let dest = CGImageDestinationCreateWithURL(outURL as CFURL,
                             UTType.png.identifier as CFString, 1, nil) else {
@@ -127,6 +140,35 @@ final class Model: ObservableObject {
             return ConvResult(source: url, output: nil, error: "Couldn't write PNG")
         }
         return ConvResult(source: url, output: outURL, error: nil)
+    }
+}
+
+private extension CGImagePropertyOrientation {
+    // The 90°/270° rotations turn a landscape source into a portrait result
+    // (and vice versa), so the destination's width and height are swapped.
+    var swapsDimensions: Bool {
+        switch self {
+        case .left, .leftMirrored, .right, .rightMirrored: return true
+        default: return false
+        }
+    }
+
+    // Affine transform that maps the source's raw pixel space into a context sized
+    // to the upright (display) dimensions, baking the EXIF orientation into the
+    // output. Each case was verified pixel-for-pixel against ImageIO's own
+    // orientation baking (kCGImageSourceCreateThumbnailWithTransform).
+    func drawTransform(pixelWidth w: CGFloat, pixelHeight h: CGFloat) -> CGAffineTransform {
+        switch self {
+        case .up:            return .identity
+        case .upMirrored:    return CGAffineTransform(translationX: w, y: 0).scaledBy(x: -1, y: 1)
+        case .down:          return CGAffineTransform(translationX: w, y: h).rotated(by: .pi)
+        case .downMirrored:  return CGAffineTransform(translationX: 0, y: h).scaledBy(x: 1, y: -1)
+        case .right:         return CGAffineTransform(translationX: 0, y: w).rotated(by: -.pi / 2)
+        case .rightMirrored: return CGAffineTransform(translationX: 0, y: 0).rotated(by: .pi / 2).scaledBy(x: 1, y: -1)
+        case .left:          return CGAffineTransform(translationX: h, y: 0).rotated(by: .pi / 2)
+        case .leftMirrored:  return CGAffineTransform(translationX: h, y: w).rotated(by: -.pi / 2).scaledBy(x: 1, y: -1)
+        @unknown default:    return .identity
+        }
     }
 }
 
