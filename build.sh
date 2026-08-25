@@ -9,6 +9,7 @@ APP="build/HEIC to Resolve.app"
 echo "==> Compiling Swift app"
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp -R Fonts "$APP/Contents/Resources/Fonts"
 swiftc -parse-as-library -O HEICToResolve.swift -o "$APP/Contents/MacOS/HEICToResolve"
 
 echo "==> Generating app icon"

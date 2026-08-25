@@ -13,7 +13,10 @@ func col(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> NSColor 
     NSColor(srgbRed: r/255, green: g/255, blue: b/255, alpha: a)
 }
 
-// --- App tile: inset rounded square with soft drop shadow (native macOS look) ---
+let paper = col(232, 227, 217)
+let ink   = col(46, 46, 41)
+
+// --- App tile: warm paper with a soft drop shadow ---
 let inset: CGFloat = 96
 let tile = NSRect(x: inset, y: inset, width: S - inset*2, height: S - inset*2)
 let radius: CGFloat = (S - inset*2) * 0.225
@@ -22,44 +25,59 @@ let tilePath = NSBezierPath(roundedRect: tile, xRadius: radius, yRadius: radius)
 cg.saveGState()
 cg.setShadow(offset: CGSize(width: 0, height: -22), blur: 50,
              color: col(0,0,0,0.35).cgColor)
-// clip to tile and paint the HDR gradient (cyan -> violet, evokes wide-gamut color)
-tilePath.addClip()
-let grad = NSGradient(colors: [col(0, 200, 255), col(91, 70, 246), col(123, 47, 247)],
-                      atLocations: [0.0, 0.6, 1.0], colorSpace: .sRGB)!
-grad.draw(in: tile, angle: -90)
+paper.setFill()
+tilePath.fill()
 cg.restoreGState()
 
-// re-clip (without shadow) for interior art
+// --- Interior art: ink circle with a paper photo glyph ---
 cg.saveGState()
 tilePath.addClip()
 
-// --- Sun ---
-let sun = NSBezierPath(ovalIn: NSRect(x: tile.minX + tile.width*0.18,
-                                      y: tile.minY + tile.height*0.60,
-                                      width: tile.width*0.20, height: tile.width*0.20))
-col(255, 255, 255, 0.95).setFill()
-sun.fill()
+let circleCenter = NSPoint(x: tile.midX, y: tile.midY)
+let circleRadius = tile.width * 0.31
+let circle = NSBezierPath(ovalIn: NSRect(
+    x: circleCenter.x - circleRadius,
+    y: circleCenter.y - circleRadius,
+    width: circleRadius * 2,
+    height: circleRadius * 2))
+ink.setFill()
+circle.fill()
 
-// --- Mountains (two white silhouettes, layered) ---
-func mountain(_ peaks: [(CGFloat, CGFloat)], _ baseY: CGFloat, _ color: NSColor) {
-    let p = NSBezierPath()
-    p.move(to: NSPoint(x: tile.minX, y: tile.minY + tile.height*baseY))
-    for (x, y) in peaks {
-        p.line(to: NSPoint(x: tile.minX + tile.width*x, y: tile.minY + tile.height*y))
-    }
-    p.line(to: NSPoint(x: tile.maxX, y: tile.minY + tile.height*baseY))
-    p.line(to: NSPoint(x: tile.maxX, y: tile.minY))
-    p.line(to: NSPoint(x: tile.minX, y: tile.minY))
-    p.close()
-    color.setFill()
-    p.fill()
-}
-// back range (softer)
-mountain([(0.18, 0.42), (0.34, 0.30), (0.52, 0.52), (0.70, 0.34), (0.88, 0.50)],
-         0.30, col(255, 255, 255, 0.55))
-// front range (bright)
-mountain([(0.10, 0.20), (0.30, 0.46), (0.46, 0.24), (0.66, 0.40), (0.82, 0.18), (0.95, 0.30)],
-         0.16, col(255, 255, 255, 0.98))
+// Photo glyph, centered in the circle.
+let glyphW = circleRadius * 1.15
+let glyphH = glyphW * 0.74
+let glyphRect = NSRect(
+    x: circleCenter.x - glyphW/2,
+    y: circleCenter.y - glyphH/2,
+    width: glyphW,
+    height: glyphH)
+let glyphRadius = glyphW * 0.08
+
+let frame = NSBezierPath(roundedRect: glyphRect, xRadius: glyphRadius, yRadius: glyphRadius)
+frame.lineWidth = glyphW * 0.065
+paper.setStroke()
+frame.stroke()
+
+let strokeW = glyphW * 0.055
+let mountains = NSBezierPath()
+mountains.move(to: NSPoint(x: glyphRect.minX + glyphW*0.14,
+                           y: glyphRect.minY + glyphH*0.62))
+mountains.line(to: NSPoint(x: glyphRect.midX,
+                           y: glyphRect.minY + glyphH*0.34))
+mountains.line(to: NSPoint(x: glyphRect.maxX - glyphW*0.14,
+                           y: glyphRect.minY + glyphH*0.62))
+mountains.lineWidth = strokeW
+paper.setStroke()
+mountains.stroke()
+
+let sunSize = glyphW * 0.15
+let sun = NSBezierPath(ovalIn: NSRect(
+    x: glyphRect.maxX - glyphW*0.34,
+    y: glyphRect.maxY - glyphH*0.43,
+    width: sunSize,
+    height: sunSize))
+paper.setFill()
+sun.fill()
 
 cg.restoreGState()
 

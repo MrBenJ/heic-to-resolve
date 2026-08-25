@@ -4,6 +4,101 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
+// MARK: - Brand palette (Human Balance Brand Guidebook v2)
+//
+// Paper/ink surfaces from the brand book, one slate-blue signal color reserved
+// for active states (drag-hover, progress, focus), and the brand type pair:
+// Josefin Sans for headings, Lato for body copy.
+
+private extension NSColor {
+    static func brandColor(name: String, light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: name, dynamicProvider: { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDark ? dark : light
+        })
+    }
+
+    static let hbaiPaper = brandColor(
+        name: "HBAIPaper",
+        light: NSColor(srgbRed: 232/255, green: 227/255, blue: 217/255, alpha: 1),
+        dark: NSColor(srgbRed: 36/255, green: 36/255, blue: 31/255, alpha: 1)
+    )
+
+    static let hbaiInk = brandColor(
+        name: "HBAIInk",
+        light: NSColor(srgbRed: 46/255, green: 46/255, blue: 41/255, alpha: 1),
+        dark: NSColor(srgbRed: 232/255, green: 227/255, blue: 217/255, alpha: 1)
+    )
+
+    static let hbaiSurface = brandColor(
+        name: "HBAISurface",
+        light: NSColor(srgbRed: 244/255, green: 241/255, blue: 234/255, alpha: 1),
+        dark: NSColor(srgbRed: 46/255, green: 46/255, blue: 41/255, alpha: 1)
+    )
+
+    static let hbaiHairline = brandColor(
+        name: "HBAIHairline",
+        light: NSColor(srgbRed: 210/255, green: 203/255, blue: 187/255, alpha: 1),
+        dark: NSColor(srgbRed: 68/255, green: 68/255, blue: 59/255, alpha: 1)
+    )
+
+    static let hbaiAccent = brandColor(
+        name: "HBAIAccent",
+        light: NSColor(srgbRed: 91/255, green: 122/255, blue: 138/255, alpha: 1),
+        dark: NSColor(srgbRed: 138/255, green: 167/255, blue: 182/255, alpha: 1)
+    )
+
+    static let hbaiAccentText = brandColor(
+        name: "HBAIAccentText",
+        light: NSColor(srgbRed: 68/255, green: 96/255, blue: 110/255, alpha: 1),
+        dark: NSColor(srgbRed: 138/255, green: 167/255, blue: 182/255, alpha: 1)
+    )
+
+    static let hbaiInkMuted = brandColor(
+        name: "HBAIInkMuted",
+        light: NSColor(srgbRed: 95/255, green: 92/255, blue: 80/255, alpha: 1),
+        dark: NSColor(srgbRed: 169/255, green: 162/255, blue: 148/255, alpha: 1)
+    )
+}
+
+extension Color {
+    static let hbaiPaper      = Color(nsColor: .hbaiPaper)
+    static let hbaiInk        = Color(nsColor: .hbaiInk)
+    static let hbaiSurface    = Color(nsColor: .hbaiSurface)
+    static let hbaiHairline   = Color(nsColor: .hbaiHairline)
+    static let hbaiAccent     = Color(nsColor: .hbaiAccent)
+    static let hbaiAccentText = Color(nsColor: .hbaiAccentText)
+    static let hbaiInkMuted   = Color(nsColor: .hbaiInkMuted)
+}
+
+extension Font {
+    // The bundled fonts are declared in Info.plist via ATSApplicationFontsPath.
+    // If anything goes wrong with loading, fall back to the system so the UI
+    // is still usable.
+    private static var hasJosefinSans: Bool {
+        NSFont(name: "Josefin Sans", size: 12) != nil
+    }
+    private static var hasLato: Bool {
+        NSFont(name: "Lato", size: 12) != nil
+    }
+
+    static func hbaiDisplay(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        if hasJosefinSans {
+            return .custom("Josefin Sans", size: size).weight(weight)
+        }
+        return .system(size: size, weight: weight, design: .default)
+    }
+
+    static func hbaiBody(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        if hasLato {
+            return .custom("Lato", size: size).weight(weight)
+        }
+        return .system(size: size, weight: weight, design: .default)
+    }
+}
+
+// MARK: - Conversion model
+
 // One conversion result.
 struct ConvResult: Identifiable, Sendable {
     let id = UUID()
@@ -172,6 +267,8 @@ private extension CGImagePropertyOrientation {
     }
 }
 
+// MARK: - Views
+
 struct ContentView: View {
     @ObservedObject private var model = Model.shared
 
@@ -186,7 +283,10 @@ struct ContentView: View {
                 Done(model: model)
             }
         }
-        .frame(width: 460, height: 380)
+        .frame(width: 480, height: 400)
+        .background(Color.hbaiPaper)
+        .accentColor(Color.hbaiAccent)
+        .tint(Color.hbaiAccent)
         .onDrop(of: [.fileURL], isTargeted: $model.isTargeted) { providers in
             guard !model.isConverting else { return false }
             loadURLs(providers) { urls in
@@ -231,16 +331,21 @@ struct ContentView: View {
 struct DropZone: View {
     @ObservedObject var model: Model
     let targeted: Bool
+
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 54, weight: .light))
-                .foregroundStyle(targeted ? Color.accentColor : .secondary)
+                .foregroundStyle(targeted ? Color.hbaiAccent : Color.hbaiInkMuted)
+
             Text("Drop HEIC here")
-                .font(.title2.weight(.semibold))
+                .font(.hbaiDisplay(size: 24, weight: .bold))
+                .foregroundStyle(Color.hbaiInk)
+
             Text("Converts to sRGB PNG for DaVinci Resolve")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(.hbaiBody(size: 14))
+                .foregroundStyle(Color.hbaiInkMuted)
+
             Picker("Output depth", selection: $model.sixteenBit) {
                 Text("8-bit").tag(false)
                 Text("16-bit").tag(true)
@@ -248,35 +353,41 @@ struct DropZone: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 180)
-            .padding(.top, 4)
+            .padding(.top, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(28)
         .background(
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(
-                    targeted ? Color.accentColor : Color.secondary.opacity(0.4),
+                    targeted ? Color.hbaiAccent : Color.hbaiHairline,
                     style: StrokeStyle(lineWidth: 2, dash: [9])
                 )
                 .background(
-                    RoundedRectangle(cornerRadius: 18)
-                        .fill(targeted ? Color.accentColor.opacity(0.08) : Color.clear)
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(targeted ? Color.hbaiAccent.opacity(0.08) : Color.clear)
                 )
-                .padding(22)
         )
+        .padding(24)
     }
 }
 
 struct Converting: View {
     let current: Int
     let total: Int
+
     var body: some View {
         VStack(spacing: 18) {
-            ProgressView().controlSize(.large)
+            ProgressView()
+                .controlSize(.large)
+                .tint(Color.hbaiAccent)
             Text(total > 1 ? "Converting \(current) of \(total)…" : "Converting…")
-                .font(.title3.weight(.medium))
+                .font(.hbaiDisplay(size: 18, weight: .semibold))
+                .foregroundStyle(Color.hbaiInk)
                 .monospacedDigit()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.hbaiPaper)
     }
 }
 
@@ -289,30 +400,39 @@ struct Done: View {
         VStack(spacing: 14) {
             Image(systemName: fail == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 50))
-                .foregroundStyle(fail == 0 ? Color.green : Color.orange)
+                .foregroundStyle(fail == 0 ? Color.hbaiAccent : Color.hbaiInkMuted)
+
             Text(headline(ok: ok, fail: fail))
-                .font(.title2.weight(.semibold))
+                .font(.hbaiDisplay(size: 22, weight: .bold))
+                .foregroundStyle(Color.hbaiInk)
                 .multilineTextAlignment(.center)
+
             if fail > 0, let e = model.results.first(where: { !$0.ok })?.error {
                 Text(e)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.hbaiBody(size: 12))
+                    .foregroundStyle(Color.hbaiInkMuted)
                     .lineLimit(3)
                     .padding(.horizontal, 28)
                     .multilineTextAlignment(.center)
             }
+
             HStack(spacing: 12) {
                 if ok > 0 {
                     Button("Show in Finder") { model.revealInFinder() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
                 }
                 Button("Convert another") { model.reset() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
             }
-            .controlSize(.large)
+            .tint(Color.hbaiAccent)
             .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
+        .background(Color.hbaiPaper)
     }
 
     private func headline(ok: Int, fail: Int) -> String {
@@ -322,6 +442,8 @@ struct Done: View {
         return "\(ok) converted, \(fail) failed"
     }
 }
+
+// MARK: - App delegate & entry point
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     // Files dropped on the Dock/Finder icon (modern API).
