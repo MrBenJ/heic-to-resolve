@@ -23,6 +23,8 @@ for spec in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
   px="${spec%%:*}"; name="${spec##*:}"
   sips -z "$px" "$px" "$SRC" --out "$ICONSET/${name}.png" >/dev/null
 done
+# Native small-size rendering keeps the four-letter monogram distinct.
+swift make-icon.swift --small-iconset "$ICONSET"
 cp "$SRC" "$ICONSET/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -f "$SRC"
