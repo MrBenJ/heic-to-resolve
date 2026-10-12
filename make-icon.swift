@@ -1,69 +1,143 @@
 import Cocoa
+import CoreText
 
-let S: CGFloat = 1024
-let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(S), pixelsHigh: Int(S),
-    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-let ctxObj = NSGraphicsContext(bitmapImageRep: rep)!
-NSGraphicsContext.saveGraphicsState()
-NSGraphicsContext.current = ctxObj
-let cg = ctxObj.cgContext
+let referenceSize: CGFloat = 1024
+let paper = NSColor(srgbRed: 232/255, green: 227/255, blue: 217/255, alpha: 1)
+let ink = NSColor(srgbRed: 46/255, green: 46/255, blue: 41/255, alpha: 1)
 
-func col(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> NSColor {
-    NSColor(srgbRed: r/255, green: g/255, blue: b/255, alpha: a)
+let fontURL = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("Fonts/Lato-Bold.ttf")
+var fontRegistrationError: Unmanaged<CFError>?
+if !CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, &fontRegistrationError),
+   let error = fontRegistrationError?.takeRetainedValue() {
+    fputs("warning: could not register Lato Bold; using the system font: \(error)\n", stderr)
 }
 
-// --- App tile: inset rounded square with soft drop shadow (native macOS look) ---
-let inset: CGFloat = 96
-let tile = NSRect(x: inset, y: inset, width: S - inset*2, height: S - inset*2)
-let radius: CGFloat = (S - inset*2) * 0.225
-let tilePath = NSBezierPath(roundedRect: tile, xRadius: radius, yRadius: radius)
+func scaled(_ value: CGFloat, to size: CGFloat) -> CGFloat {
+    value * size / referenceSize
+}
 
-cg.saveGState()
-cg.setShadow(offset: CGSize(width: 0, height: -22), blur: 50,
-             color: col(0,0,0,0.35).cgColor)
-// clip to tile and paint the HDR gradient (cyan -> violet, evokes wide-gamut color)
-tilePath.addClip()
-let grad = NSGradient(colors: [col(0, 200, 255), col(91, 70, 246), col(123, 47, 247)],
-                      atLocations: [0.0, 0.6, 1.0], colorSpace: .sRGB)!
-grad.draw(in: tile, angle: -90)
-cg.restoreGState()
+func drawCompactMonogram16(center: NSPoint) {
+    // Four lowercase letters cannot remain distinct inside the 10 px circle,
+    // so the legacy 1x rendition uses the same h-plus-dot shorthand language.
+    let font = NSFont(name: "Lato-Bold", size: 8)
+        ?? NSFont.systemFont(ofSize: 8, weight: .bold)
+    let monogram = NSAttributedString(string: "h.", attributes: [
+        .font: font,
+        .foregroundColor: paper,
+        .kern: 0.2,
+    ])
+    let monogramSize = monogram.size()
+    monogram.draw(at: NSPoint(
+        x: round(center.x - monogramSize.width / 2),
+        y: round(center.y - monogramSize.height / 2)))
+}
 
-// re-clip (without shadow) for interior art
-cg.saveGState()
-tilePath.addClip()
+func renderIcon(pixelSize: Int, to outputURL: URL, opticallyAdjusted: Bool = false) throws {
+    let size = CGFloat(pixelSize)
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixelSize, pixelsHigh: pixelSize,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    let context = NSGraphicsContext(bitmapImageRep: rep)!
 
-// --- Sun ---
-let sun = NSBezierPath(ovalIn: NSRect(x: tile.minX + tile.width*0.18,
-                                      y: tile.minY + tile.height*0.60,
-                                      width: tile.width*0.20, height: tile.width*0.20))
-col(255, 255, 255, 0.95).setFill()
-sun.fill()
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
 
-// --- Mountains (two white silhouettes, layered) ---
-func mountain(_ peaks: [(CGFloat, CGFloat)], _ baseY: CGFloat, _ color: NSColor) {
-    let p = NSBezierPath()
-    p.move(to: NSPoint(x: tile.minX, y: tile.minY + tile.height*baseY))
-    for (x, y) in peaks {
-        p.line(to: NSPoint(x: tile.minX + tile.width*x, y: tile.minY + tile.height*y))
+    // Match the HBAI whisper-drop icon's warm-paper tile geometry.
+    let inset = scaled(64, to: size)
+    let tile = NSRect(x: inset, y: inset, width: size - inset * 2, height: size - inset * 2)
+    let tilePath = NSBezierPath(
+        roundedRect: tile,
+        xRadius: scaled(208, to: size),
+        yRadius: scaled(208, to: size))
+    paper.setFill()
+    tilePath.fill()
+
+    // Ink circle and paper monogram, modeled directly on whisper-drop.
+    context.cgContext.saveGState()
+    tilePath.addClip()
+
+    let circleCenter = NSPoint(x: tile.midX, y: tile.midY)
+    let circleRadius = scaled(306, to: size)
+    let circle = NSBezierPath(ovalIn: NSRect(
+        x: circleCenter.x - circleRadius,
+        y: circleCenter.y - circleRadius,
+        width: circleRadius * 2,
+        height: circleRadius * 2))
+    ink.setFill()
+    circle.fill()
+
+    if opticallyAdjusted && pixelSize == 16 {
+        drawCompactMonogram16(center: circleCenter)
+    } else {
+        // Small icon sizes need native rasterization, taller type, and extra
+        // tracking; downsampling the 1024 px wordmark merges the letters.
+        let fontScale = opticallyAdjusted ? 0.25 : 220 / referenceSize
+        let fontSize = size * fontScale
+        let font = NSFont(name: "Lato-Bold", size: fontSize)
+            ?? NSFont.systemFont(ofSize: fontSize, weight: .bold)
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: paper,
+        ]
+        if opticallyAdjusted {
+            attributes[.kern] = 0.35
+        } else {
+            attributes[.strokeColor] = paper
+            attributes[.strokeWidth] = -3.0
+        }
+
+        let monogram = NSAttributedString(string: "heic", attributes: attributes)
+        let monogramSize = monogram.size()
+        let showsTerminalDot = !opticallyAdjusted || pixelSize >= 64
+        let dotRadius = max(scaled(8, to: size), opticallyAdjusted ? 0.75 : 0)
+        let dotGap = scaled(11, to: size)
+        let lockupWidth = monogramSize.width
+            + (showsTerminalDot ? dotGap + dotRadius * 2 : 0)
+        let monogramOrigin = NSPoint(
+            x: circleCenter.x - lockupWidth / 2,
+            y: circleCenter.y - monogramSize.height / 2)
+        monogram.draw(at: monogramOrigin)
+
+        if showsTerminalDot {
+            // A terminal dot echoes the reference icon's punctuation accents.
+            let dotCenter = NSPoint(
+                x: monogramOrigin.x + monogramSize.width + dotGap + dotRadius,
+                y: monogramOrigin.y + monogramSize.height * 0.29)
+            let dot = NSBezierPath(ovalIn: NSRect(
+                x: dotCenter.x - dotRadius,
+                y: dotCenter.y - dotRadius,
+                width: dotRadius * 2,
+                height: dotRadius * 2))
+            paper.setFill()
+            dot.fill()
+        }
     }
-    p.line(to: NSPoint(x: tile.maxX, y: tile.minY + tile.height*baseY))
-    p.line(to: NSPoint(x: tile.maxX, y: tile.minY))
-    p.line(to: NSPoint(x: tile.minX, y: tile.minY))
-    p.close()
-    color.setFill()
-    p.fill()
+
+    context.cgContext.restoreGState()
+    NSGraphicsContext.restoreGraphicsState()
+
+    try rep.representation(using: .png, properties: [:])!.write(to: outputURL)
 }
-// back range (softer)
-mountain([(0.18, 0.42), (0.34, 0.30), (0.52, 0.52), (0.70, 0.34), (0.88, 0.50)],
-         0.30, col(255, 255, 255, 0.55))
-// front range (bright)
-mountain([(0.10, 0.20), (0.30, 0.46), (0.46, 0.24), (0.66, 0.40), (0.82, 0.18), (0.95, 0.30)],
-         0.16, col(255, 255, 255, 0.98))
 
-cg.restoreGState()
-
-NSGraphicsContext.restoreGraphicsState()
-let out = URL(fileURLWithPath: "/tmp/heic-icon-1024.png")
-try! rep.representation(using: .png, properties: [:])!.write(to: out)
-print("wrote \(out.path)")
+if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--small-iconset" {
+    let iconsetURL = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+    let renditions = [
+        (16, "icon_16x16.png"),
+        (32, "icon_16x16@2x.png"),
+        (32, "icon_32x32.png"),
+        (64, "icon_32x32@2x.png"),
+    ]
+    for (pixelSize, filename) in renditions {
+        try renderIcon(
+            pixelSize: pixelSize,
+            to: iconsetURL.appendingPathComponent(filename),
+            opticallyAdjusted: true)
+    }
+    print("wrote optically tuned small icon renditions")
+} else {
+    let outputURL = URL(fileURLWithPath: "/tmp/heic-icon-1024.png")
+    try renderIcon(pixelSize: 1024, to: outputURL)
+    print("wrote \(outputURL.path)")
+}
